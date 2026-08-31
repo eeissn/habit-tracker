@@ -1,8 +1,9 @@
 // routes/habits.js
 // Все эндпоинты, связанные с привычками, собраны в одном Express-роутере.
+// Данные хранятся в JSON-файле через db.js (readData/writeData).
 
 const express = require('express');
-const db = require('../db');
+const { readData, writeData } = require('../db');
 
 const router = express.Router();
 
@@ -13,14 +14,13 @@ function today() {
 
 // Считает текущий стрик (сколько дней подряд, включая сегодня/вчера,
 // привычка выполнялась без пропусков)
-function calculateStreak(habitId) {
-  const rows = db
-    .prepare('SELECT date FROM completions WHERE habit_id = ? ORDER BY date DESC')
-    .all(habitId);
+function calculateStreak(data, habitId) {
+  const dates = new Set(
+    data.completions.filter((c) => c.habit_id === habitId).map((c) => c.date)
+  );
 
-  if (rows.length === 0) return 0;
+  if (dates.size === 0) return 0;
 
-  const dates = new Set(rows.map((r) => r.date));
   let streak = 0;
   let cursor = new Date();
 
@@ -39,17 +39,17 @@ function calculateStreak(habitId) {
 
 // GET /api/habits — список всех привычек с признаком "выполнено сегодня" и стриком
 router.get('/', (req, res) => {
-  const habits = db.prepare('SELECT * FROM habits ORDER BY created_at').all();
+  const data = readData();
 
-  const result = habits.map((habit) => {
-    const doneToday = db
-      .prepare('SELECT 1 FROM completions WHERE habit_id = ? AND date = ?')
-      .get(habit.id, today());
+  const result = data.habits.map((habit) => {
+    const doneToday = data.completions.some(
+      (c) => c.habit_id === habit.id && c.date === today()
+    );
 
     return {
       ...habit,
-      doneToday: Boolean(doneToday),
-      streak: calculateStreak(habit.id),
+      doneToday,
+      streak: calculateStreak(data, habit.id),
     };
   });
 
@@ -64,61 +64,82 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Название привычки обязательно' });
   }
 
-  const info = db
-    .prepare('INSERT INTO habits (name) VALUES (?)')
-    .run(name.trim());
+  const data = readData();
 
-  const habit = db.prepare('SELECT * FROM habits WHERE id = ?').get(info.lastInsertRowid);
+  const habit = {
+    id: data.nextHabitId,
+    name: name.trim(),
+    created_at: new Date().toISOString(),
+  };
+
+  data.habits.push(habit);
+  data.nextHabitId += 1;
+  writeData(data);
+
   res.status(201).json({ ...habit, doneToday: false, streak: 0 });
 });
 
-// DELETE /api/habits/:id — удалить привычку (и её отметки — по каскаду)
+// DELETE /api/habits/:id — удалить привычку и все её отметки
 router.delete('/:id', (req, res) => {
-  const result = db.prepare('DELETE FROM habits WHERE id = ?').run(req.params.id);
+  const id = Number(req.params.id);
+  const data = readData();
 
-  if (result.changes === 0) {
+  const exists = data.habits.some((h) => h.id === id);
+  if (!exists) {
     return res.status(404).json({ error: 'Привычка не найдена' });
   }
+
+  data.habits = data.habits.filter((h) => h.id !== id);
+  data.completions = data.completions.filter((c) => c.habit_id !== id);
+  writeData(data);
 
   res.status(204).end();
 });
 
 // POST /api/habits/:id/toggle — отметить/снять отметку выполнения на сегодня
 router.post('/:id/toggle', (req, res) => {
-  const habitId = req.params.id;
-  const habit = db.prepare('SELECT * FROM habits WHERE id = ?').get(habitId);
+  const id = Number(req.params.id);
+  const data = readData();
 
+  const habit = data.habits.find((h) => h.id === id);
   if (!habit) {
     return res.status(404).json({ error: 'Привычка не найдена' });
   }
 
-  const existing = db
-    .prepare('SELECT id FROM completions WHERE habit_id = ? AND date = ?')
-    .get(habitId, today());
+  const existingIndex = data.completions.findIndex(
+    (c) => c.habit_id === id && c.date === today()
+  );
 
-  if (existing) {
-    db.prepare('DELETE FROM completions WHERE id = ?').run(existing.id);
+  if (existingIndex >= 0) {
+    data.completions.splice(existingIndex, 1);
   } else {
-    db.prepare('INSERT INTO completions (habit_id, date) VALUES (?, ?)').run(habitId, today());
+    data.completions.push({ id: data.nextCompletionId, habit_id: id, date: today() });
+    data.nextCompletionId += 1;
   }
 
+  writeData(data);
+
   res.json({
-    doneToday: !existing,
-    streak: calculateStreak(habitId),
+    doneToday: existingIndex < 0,
+    streak: calculateStreak(data, id),
   });
 });
 
 // GET /api/habits/:id/history — история отметок за последние 30 дней (для календарика)
 router.get('/:id/history', (req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT date FROM completions
-       WHERE habit_id = ? AND date >= date('now', '-30 days')
-       ORDER BY date`
-    )
-    .all(req.params.id);
+  const id = Number(req.params.id);
+  const data = readData();
 
-  res.json(rows.map((r) => r.date));
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+  const dates = data.completions
+    .filter((c) => c.habit_id === id && c.date >= cutoffStr)
+    .map((c) => c.date)
+    .sort();
+
+  res.json(dates);
 });
 
 module.exports = router;

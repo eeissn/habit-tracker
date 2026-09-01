@@ -29,7 +29,7 @@ function renderHabits(habits) {
         <button class="habit-check ${habit.doneToday ? 'done' : ''}" data-id="${habit.id}">
           ${habit.doneToday ? '✓' : ''}
         </button>
-        <span class="habit-name ${habit.doneToday ? 'done' : ''}">${escapeHtml(habit.name)}</span>
+        <span class="habit-name ${habit.doneToday ? 'done' : ''}" data-id="${habit.id}" data-name="${escapeHtml(habit.name)}">${escapeHtml(habit.name)}</span>
       </div>
       <div>
         <span class="habit-streak">🔥 ${habit.streak}</span>
@@ -38,6 +38,23 @@ function renderHabits(habits) {
     `;
     list.appendChild(li);
   });
+}
+
+// Переключить строку привычки в режим редактирования названия (READ + UPDATE)
+function startEdit(nameSpan) {
+  const id = nameSpan.dataset.id;
+  const currentName = nameSpan.dataset.name;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'habit-edit';
+  wrapper.innerHTML = `
+    <input type="text" class="habit-edit-input" value="${currentName}" maxlength="100" />
+    <button class="habit-save" data-id="${id}">Сохранить</button>
+    <button class="habit-cancel">Отмена</button>
+  `;
+
+  nameSpan.replaceWith(wrapper);
+  wrapper.querySelector('.habit-edit-input').focus();
 }
 
 // Простая защита от XSS при вставке названия привычки в innerHTML
@@ -72,10 +89,14 @@ form.addEventListener('submit', async (e) => {
   loadHabits();
 });
 
-// Клики по списку: отметить выполнение или удалить (делегирование событий)
+// Клики по списку: отметить выполнение, удалить, начать/сохранить/отменить
+// редактирование названия (делегирование событий)
 list.addEventListener('click', async (e) => {
   const checkBtn = e.target.closest('.habit-check');
   const deleteBtn = e.target.closest('.habit-delete');
+  const nameSpan = e.target.closest('.habit-name');
+  const saveBtn = e.target.closest('.habit-save');
+  const cancelBtn = e.target.closest('.habit-cancel');
 
   if (checkBtn) {
     const id = checkBtn.dataset.id;
@@ -89,6 +110,46 @@ list.addEventListener('click', async (e) => {
       await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
       loadHabits();
     }
+  }
+
+  // Клик по названию — запросить полную запись (READ) и включить редактирование
+  if (nameSpan) {
+    const id = nameSpan.dataset.id;
+    const res = await fetch(`${API_URL}/${id}`);
+    const habit = await res.json();
+    nameSpan.dataset.name = habit.name;
+    startEdit(nameSpan);
+  }
+
+  // Сохранить новое название (UPDATE)
+  if (saveBtn) {
+    const id = saveBtn.dataset.id;
+    const wrapper = saveBtn.closest('.habit-edit');
+    const newName = wrapper.querySelector('.habit-edit-input').value.trim();
+
+    if (!newName) {
+      alert('Название не может быть пустым');
+      return;
+    }
+
+    const res = await fetch(`${API_URL}/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      alert(data.error || 'Ошибка при сохранении');
+      return;
+    }
+
+    loadHabits();
+  }
+
+  // Отменить редактирование
+  if (cancelBtn) {
+    loadHabits();
   }
 });
 

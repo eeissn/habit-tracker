@@ -56,6 +56,23 @@ router.get('/', (req, res) => {
   res.json(result);
 });
 
+// GET /api/habits/:id — получить одну привычку по id (READ)
+router.get('/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const data = readData();
+  const habit = data.habits.find((h) => h.id === id);
+
+  if (!habit) {
+    return res.status(404).json({ error: 'Привычка не найдена' });
+  }
+
+  const doneToday = data.completions.some(
+    (c) => c.habit_id === id && c.date === today()
+  );
+
+  res.json({ ...habit, doneToday, streak: calculateStreak(data, id) });
+});
+
 // POST /api/habits — создать новую привычку { name }
 router.post('/', (req, res) => {
   const { name } = req.body;
@@ -77,6 +94,32 @@ router.post('/', (req, res) => {
   writeData(data);
 
   res.status(201).json({ ...habit, doneToday: false, streak: 0 });
+});
+
+// PUT /api/habits/:id — переименовать привычку (UPDATE) { name }
+router.put('/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const { name } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Название привычки обязательно' });
+  }
+
+  const data = readData();
+  const habit = data.habits.find((h) => h.id === id);
+
+  if (!habit) {
+    return res.status(404).json({ error: 'Привычка не найдена' });
+  }
+
+  habit.name = name.trim();
+  writeData(data);
+
+  const doneToday = data.completions.some(
+    (c) => c.habit_id === id && c.date === today()
+  );
+
+  res.json({ ...habit, doneToday, streak: calculateStreak(data, id) });
 });
 
 // DELETE /api/habits/:id — удалить привычку и все её отметки

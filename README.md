@@ -13,27 +13,21 @@
 - **Хранилище:** JSON-файл (`backend/habits.json`, создаётся автоматически)
 
 ## Структура проекта
+
+```
 habit-tracker/
 ├── backend/
-│ ├── server.js # точка входа, поднимает Express-сервер
-│ ├── db.js # чтение/запись JSON-файла с данными
-│ ├── routes/
-│ │ └── habits.js # REST API для привычек
-│ └── package.json
+│   ├── server.js        # точка входа, поднимает Express-сервер
+│   ├── db.js             # чтение/запись JSON-файла с данными
+│   ├── routes/
+│   │   └── habits.js     # REST API для привычек
+│   └── package.json
 ├── frontend/
-│ ├── index.html
-│ ├── style.css
-│ └── app.js
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
 └── README.md
-
-## Запуск проекта
-
-```bash
-cd backend
-npm install
-npm start
 ```
-
 Приложение будет доступно по адресу: http://localhost:3000
 
 ## API
